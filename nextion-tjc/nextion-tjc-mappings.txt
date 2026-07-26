@@ -1,0 +1,20 @@
+nextion display
+
+nazev:			id:
+signal			8
+txtpisnicka		6
+txtInterpret	4
+txtstanice		7
+hlasitost		2
+
+
+
+
+
+TJC display
+
+nazev:			id:
+signal			3
+pisnicka		5
+interpret		4
+stanice			2
