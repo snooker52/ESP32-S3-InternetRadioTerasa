@@ -39,7 +39,7 @@ Komunikace s displejem běží na 115200 baud.
 - Zobrazení stanice, interpreta, písničky a RSSI na displeji
 - Automatické znovupřipojení WiFi i streamu po výpadku
 - Upozornění na slabý signál (pomalý stream)
-- OTA aktualizace firmwaru (hostname `radio-terasa`, port 3232)
+- Automatická OTA aktualizace firmwaru z GitHub Releases
 
 ## Architektura firmwaru
 
@@ -59,15 +59,15 @@ Celý firmware je ve dvou souborech: `src/main.cpp` (implementace) a `include/ma
 | `radio.HMI` | projekt displeje pro Nextion/TJC editor |
 | `radio.tft` | zkompilovaný firmware displeje |
 | `nextion-tjc-mappings.txt` | mapování názvů komponent na ID (Nextion vs. TJC) |
-| `platformio.ini` | konfigurace buildu, WiFi přihlašovací údaje, OTA heslo |
+| `platformio.ini` | konfigurace buildu, WiFi přihlašovací údaje, GitHub token pro OTA |
 
 ## Konfigurace
 
-WiFi přihlašovací údaje a OTA heslo jsou v `platformio.ini` a do kódu se předávají jako build flagy:
+WiFi přihlašovací údaje a GitHub token pro stahování OTA aktualizací jsou v `platformio.ini` a do kódu se předávají jako build flagy:
 
 ```ini
 [extra]
-OTA_PASSWORD = "..."
+GITHUB_TOKEN = "..."
 
 [wifi]
 ssid = "..."
@@ -83,11 +83,11 @@ Projekt používá [PlatformIO](https://platformio.org/).
 ```
 pio run                                      # build (výchozí prostředí, debug)
 pio run -e seeed_xiao_esp32s3 -t upload      # nahrání přes sériový port (COM4)
-pio run -e seeed_xiao_esp32s3_ota -t upload  # OTA nahrání na 192.168.1.99 (release)
+pio run -e seeed_xiao_esp32s3_ota -t upload  # nahrání release buildu přes sériový port (COM4)
 pio device monitor                           # sériový monitor, 115200 baud (loguje i do souboru)
 ```
 
-Prostředí `seeed_xiao_esp32s3` je debug build s podrobným logováním (`CORE_DEBUG_LEVEL=5`), prostředí `seeed_xiao_esp32s3_ota` je release build nahrávaný vzduchem.
+Prostředí `seeed_xiao_esp32s3` je debug build s podrobným logováním (`CORE_DEBUG_LEVEL=5`), prostředí `seeed_xiao_esp32s3_ota` je release build — stejný jako publikuje CI pro GitHub release, ale nahraný ručně po sériové lince.
 
 ## CI/CD a vydávání verzí
 
@@ -107,8 +107,7 @@ Firmware se vydává přes GitHub Actions a rádio se aktualizuje samo (pull OTA
 - **Lokální build má verzi `dev`** a automatickou aktualizaci přeskakuje — firmware nahraný z PC při vývoji se sám nepřepíše releasem.
 - Repo je privátní, proto zařízení potřebuje **fine-grained PAT** (GitHub → Settings → Developer settings → Fine-grained tokens; oprávnění *Contents: Read* pro repo `ESP32_projekty`). Token se vkládá do `platformio.ini` → `[extra] GITHUB_TOKEN`.
 - Stahování assetu z privátního repa jde přes 302 redirect na podepsanou URL — na ni se Authorization hlavička neposílá (řeší `github_ota.cpp`).
-- Původní ArduinoOTA (espota push z PC) zůstává jako záložní cesta.
 
 ### Bootstrap (jednorázově)
 
-První firmware s pull OTA klientem je potřeba nahrát ručně (sériově nebo espota). Poté už se zařízení aktualizuje samo z GitHubu.
+První firmware s pull OTA klientem je potřeba nahrát ručně sériově. Poté už se zařízení aktualizuje samo z GitHubu.

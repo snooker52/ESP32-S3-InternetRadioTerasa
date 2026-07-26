@@ -16,5 +16,6 @@ void gitHubOtaCheck();
 
 // implementovano v main.cpp
 void otaStatus(String zprava);
+void otaProgress(String zprava);
 bool audioStopSong();
 extern volatile bool pozadavekPripojitStream;

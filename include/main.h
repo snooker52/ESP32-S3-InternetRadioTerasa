@@ -53,5 +53,3 @@ void nastavWiFi();
 void WiFiDisconnected(WiFiEvent_t event, WiFiEventInfo_t info);
 void WiFiConnected(WiFiEvent_t event, WiFiEventInfo_t info);
 void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info);
-
-void nastavOTA();

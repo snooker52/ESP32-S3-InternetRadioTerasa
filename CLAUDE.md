@@ -13,13 +13,13 @@ Note: the git repository root is the parent directory `C:/ESP32/ESP32_projekty`,
 ```
 pio run                                    # build (default env: seeed_xiao_esp32s3, debug)
 pio run -e seeed_xiao_esp32s3 -t upload    # upload over serial (COM4)
-pio run -e seeed_xiao_esp32s3_ota -t upload  # OTA upload to 192.168.1.99 (release build)
+pio run -e seeed_xiao_esp32s3_ota -t upload  # upload release build over serial (COM4)
 pio device monitor                         # serial monitor, COM4 @ 115200 (logs also to file via log2file filter)
 ```
 
-There are no tests or linters. The `seeed_xiao_esp32s3` env builds with `CORE_DEBUG_LEVEL=5` (verbose `log_*` output); the OTA env is a release build.
+There are no tests or linters. The `seeed_xiao_esp32s3` env builds with `CORE_DEBUG_LEVEL=5` (verbose `log_*` output); the `_ota` env is a release build (same build type CI publishes to GitHub Releases, but flashed manually over serial).
 
-WiFi credentials (`[wifi]`) and the OTA password (`[extra]`) live in `platformio.ini` and are injected as build flags (`WIFI_SSID`, `WIFI_PASS`, `OTA_PASSWORD`).
+WiFi credentials (`[wifi]`) and the GitHub PAT for pull OTA (`[extra] GITHUB_TOKEN`) live in `platformio.ini` and are injected as build flags (`WIFI_SSID`, `WIFI_PASS`, `GITHUB_TOKEN`).
 
 ## Architecture
 
@@ -33,7 +33,7 @@ Everything lives in two files: `src/main.cpp` (implementation) and `include/main
 
 **Nextion display:** Attached to `Serial2` (pins `NEX_RX`/`NEX_TX`). Communication is write-only in practice: `send_text()` sends `<component>.txt="..."` commands terminated with `\xFF\xFF\xFF`, replaces `"` with `'` in the payload, and — like `sendCommand()` — serializes writes with the `nexMutex` semaphore, because the main loop, the audio task, and WiFi event handlers all write to the display. Any new code writing to `Serial2` must take that mutex. Component names (`stanice`, `interpret`, `pisnicka`, `signal`) are defined as `NEX_TXT_*` macros; `nextion-tjc-mappings.txt` maps component names to IDs for the Nextion vs. TJC display variants. `radio.HMI` / `radio.tft` are the display editor project and compiled firmware.
 
-**WiFi/OTA:** Static IP (192.168.1.99) configured in `main.cpp`; connection is event-driven (`WiFi.onEvent`) with `WiFi.setAutoReconnect(true)` handling reconnects — do not call `WiFi.begin()` from event handlers. ArduinoOTA runs on port 3232 with hostname `radio-terasa` (kept as a fallback path).
+**WiFi:** Static IP (192.168.1.99) configured in `main.cpp`; connection is event-driven (`WiFi.onEvent`) with `WiFi.setAutoReconnect(true)` handling reconnects — do not call `WiFi.begin()` from event handlers. `nastavWiFi()` scans for all APs matching `WIFI_SSID` and connects directly to the strongest one by RSSI (`WiFi.begin(ssid, password, channel, bssid)`) instead of a plain `WiFi.begin(ssid, password)`, because letting ESP-IDF pick the AP can choose a weaker one when multiple APs share the same SSID. There is no push-OTA (ArduinoOTA) path anymore — pull OTA from GitHub Releases (below) is the only update mechanism, so a first firmware with the pull-OTA client must be flashed over serial once.
 
 **CI/CD + pull OTA:** Releases are made by pushing a tag `radio-terasa-v*`; `.github/workflows/radio-terasa-release.yml` (repo root) builds with `-DFIRMWARE_VERSION` from the tag and publishes `firmware.bin` both under the pushed tag and to the moving release `radio-terasa-latest`, which the device polls (`src/github_ota.cpp` — on WiFi connect and every 6 h from `loop()`). Local builds get version `"dev"` and skip auto-update, so a dev flash is never overwritten by a release. Private-repo asset download needs the fine-grained PAT in `platformio.ini` `[extra] GITHUB_TOKEN` and a manual 302-redirect hop (no Authorization header on the signed URL). `.github/workflows/radio-terasa-ci.yml` build-checks pushes/PRs touching this project.
 

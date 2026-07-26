@@ -1,13 +1,11 @@
 #include <Arduino.h>
-#include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <WiFi.h>
 #include <Audio.h>
 #include "main.h"
 #include "github_ota.h"
 
-#define OTA_HOSTNAME  "radio-terasa"
-#define OTA_PORT  3232
+#define HOSTNAME  "radio-terasa"
 
 #define I2S_DOUT  D1 // A1 // GPIO2 connect to DAC pin DIN
 #define I2S_BCLK  D2 // A2 // GPIO3 connect to DAC pin BCK
@@ -106,10 +104,10 @@ void setup() {
   primaryDNS = pref.getUInt("pdns", (uint32_t) primaryDNS);
   secondaryDNS = pref.getUInt("sdns", (uint32_t) secondaryDNS);
   WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
-  if (!WiFi.setHostname(OTA_HOSTNAME)) {
+  if (!WiFi.setHostname(HOSTNAME)) {
     log_e("Hostname failed to configure");
   }
-  log_d("Nastavuji Hostname %s", OTA_HOSTNAME);  
+  log_d("Nastavuji Hostname %s", HOSTNAME);
   send_text(NEX_TXT_INTERPRET, "Připojuji k WiFi síti....");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {    
@@ -129,7 +127,6 @@ void setup() {
   audioSetVolume(12);
   audioSetBalance(0); // -16 ...16
   nastavWiFi();   // stream se pripoji az po ziskani IP adresy (viz WiFiGotIP a loop)
-  nastavOTA();
 
 }
 
@@ -155,8 +152,6 @@ void loop() {
     millisOtaCheck = milliscurrent;
     gitHubOtaCheck();
   }
-
-  ArduinoOTA.handle();
 }
 
 QueueHandle_t audioSetQueue = NULL;
@@ -294,6 +289,11 @@ bool audioStopSong(){
 // stav OTA aktualizace na displej (volano z github_ota.cpp)
 void otaStatus(String zprava){
     send_text(NEX_TXT_INTERPRET, zprava);
+}
+
+// prubeh stahovani/instalace OTA aktualizace na displej (volano z github_ota.cpp)
+void otaProgress(String zprava){
+    send_text(NEX_TXT_PISNICKA, zprava);
 }
 
 //*****************************************************************************************
@@ -486,14 +486,39 @@ void nastav_balance(int8_t number) {
 /*                        WiFi                                         */
 /********************************************************************* */
 void nastavWiFi() {
+  WiFi.mode(WIFI_STA);
   WiFi.onEvent(WiFiDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.onEvent(WiFiConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
   WiFi.onEvent(WiFiGotIP, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
-  WiFi.setHostname(OTA_HOSTNAME);
+  WiFi.setHostname(HOSTNAME);
   WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
-  log_i("Hostname nastaven na %s", OTA_HOSTNAME);
+  log_i("Hostname nastaven na %s", HOSTNAME);
   WiFi.setAutoReconnect(true);
-  WiFi.begin(ssid.c_str(), password.c_str());
+
+  // WiFi.begin() bez BSSID nechava vyber AP na ESP-IDF, ktery casto zvoli
+  // vzdalenejsi/slabsi AP misto nejsilnejsi se stejnym SSID - proto radeji
+  // sami vyhledame vsechny AP se shodnym SSID a pripojime se primo na tu
+  // s nejlepsim RSSI (kanal + BSSID).
+  int32_t nejlepsiIndex = -1;
+  int32_t nejlepsiRssi = -1000;
+  int pocetSiti = WiFi.scanNetworks();
+  for (int i = 0; i < pocetSiti; i++) {
+    if (WiFi.SSID(i) == ssid && WiFi.RSSI(i) > nejlepsiRssi) {
+      nejlepsiRssi = WiFi.RSSI(i);
+      nejlepsiIndex = i;
+    }
+  }
+
+  if (nejlepsiIndex >= 0) {
+    log_i("Nejsilnejsi AP pro '%s': kanal=%d RSSI=%d BSSID=%s", ssid.c_str(),
+          WiFi.channel(nejlepsiIndex), nejlepsiRssi, WiFi.BSSIDstr(nejlepsiIndex).c_str());
+    WiFi.begin(ssid.c_str(), password.c_str(), WiFi.channel(nejlepsiIndex), WiFi.BSSID(nejlepsiIndex));
+  } else {
+    log_i("Sit '%s' nenalezena skenem, pripojuji bez BSSID", ssid.c_str());
+    WiFi.begin(ssid.c_str(), password.c_str());
+  }
+  WiFi.scanDelete();
+
   log_i("Cekam na pripojeni k siti ...");
 }
 
@@ -516,42 +541,4 @@ void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
   log_i("RSSI=%d", WiFi.RSSI());
   pozadavekPripojitStream = true;   // stream pripoji loop(), event handler nesmi blokovat
   //setValue(cur_volume, NEX_TXT_HLASITOST);
-}
-
-/********************************************************************* */
-/*                 Updates ower the Air                                */
-/********************************************************************* */
-void nastavOTA() {
-  ArduinoOTA.setPassword(OTA_PASSWORD);
-  ArduinoOTA.setHostname(OTA_HOSTNAME);
-  ArduinoOTA.setPort(OTA_PORT);
-  ArduinoOTA.onStart([]() {
-    log_i("OTA spoustim aktualizaci");
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      //lcd.print("OTA update sketch");
-    } else { // U_SPIFFS
-      //lcd.print("OTA update Fsystem");
-    }            
-  });
-  ArduinoOTA.onEnd([]() {
-    log_i("OTA End");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    log_i("OTA Update Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    log_e("OTA chyba: [%u]", error);
-    if (error == OTA_AUTH_ERROR) {
-      log_e("OTA chyba overeni");
-    } else if (error == OTA_BEGIN_ERROR) {
-      log_e("OTA chyba zacatku");
-    } else if (error == OTA_CONNECT_ERROR) {
-      log_e("OTA chyba pripojeni");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      log_e("OTA chyba prijmu");
-    } else if (error == OTA_END_ERROR) {
-      log_e("OTA End Failed");
-    }
-  });
-  ArduinoOTA.begin();
 }

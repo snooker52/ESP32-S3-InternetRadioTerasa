@@ -62,6 +62,17 @@ static bool stahniAInstaluj(uint32_t assetId, size_t velikost) {
         http.end();
         return false;
     }
+
+    otaProgress("");   // vycistit pole pred zobrazenim procent
+    Update.onProgress([](size_t hotovo, size_t celkem) {
+        static uint8_t posledniDesitka = 255;
+        uint8_t procent = celkem ? (hotovo * 100) / celkem : 0;
+        if (procent / 10 != posledniDesitka) {
+            posledniDesitka = procent / 10;
+            otaProgress(String(procent) + " %");
+        }
+    });
+
     size_t zapsano = Update.writeStream(http.getStream());
     http.end();
     if (zapsano != velikost) {
